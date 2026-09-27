@@ -4,12 +4,20 @@
   "description": "An AI treasurer for an autonomous API business: three-way matching, counterparty screening and policy-bound USDC disbursement on Arc.",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=22" },
-  "bin": { "tamias": "src/cli.js" },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "tamias": "src/cli.js"
+  },
   "scripts": {
     "test": "node --test test/",
     "sync": "node --env-file-if-exists=.env src/cli.js sync",
     "report": "node --env-file-if-exists=.env src/cli.js report"
   },
-  "dependencies": { "viem": "^2.56.9" }
+  "dependencies": {
+    "@circle-fin/adapter-viem-v2": "^1.18.0",
+    "@circle-fin/bridge-kit": "^1.15.1",
+    "viem": "^2.56.9"
+  }
 }
