@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "network": "arc-testnet",
+  "limits": {
+    "perActionMaxMicro": 250000,
+    "dailyMaxMicro": 1000000,
+    "humanApprovalAboveMicro": 100000
+  },
+  "floats": {
+    "arcOperatingMinMicro": 200000,
+    "arcOperatingTargetMicro": 500000
+  },
+  "payees": [
+    {
+      "id": "indexing-wallet",
+      "address": "0x68214ff5c44f38d19ed886e8d59aadb8cab2ce22",
+      "purpose": "Bazaar indexing wallet: pays the listing fee each time a new route is published",
+      "kinds": ["TOPUP"],
+      "targetMicro": 50000
+    },
+    {
+      "id": "reserve",
+      "address": "0x0000000000000000000000000000000000000000",
+      "purpose": "Cold reserve wallet held by the owner; set before use",
+      "kinds": ["SWEEP"]
+    }
+  ],
+  "refunds": {
+    "enabled": true,
+    "onlyClasses": ["EXTERNAL", "UNSCREENED"],
+    "requireLiabilityMatch": true
+  }
+}

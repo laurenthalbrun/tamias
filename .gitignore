@@ -3,3 +3,4 @@ node_modules/
 *.secret
 data/*.jsonl
 data/cache/
+*.secret
