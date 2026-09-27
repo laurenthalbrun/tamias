@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.secret
+data/*.jsonl
+data/cache/

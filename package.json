@@ -1,0 +1,15 @@
+{
+  "name": "tamias",
+  "version": "0.1.0",
+  "description": "An AI treasurer for an autonomous API business: three-way matching, counterparty screening and policy-bound USDC disbursement on Arc.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "bin": { "tamias": "src/cli.js" },
+  "scripts": {
+    "test": "node --test test/",
+    "sync": "node --env-file-if-exists=.env src/cli.js sync",
+    "report": "node --env-file-if-exists=.env src/cli.js report"
+  },
+  "dependencies": { "viem": "^2.56.9" }
+}

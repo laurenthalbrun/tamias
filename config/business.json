@@ -1,0 +1,20 @@
+{
+  "name": "x-402.online API farm",
+  "payTo": "0x2c871C2b8876dc35e9E19646FDa5ABF1cd27735F",
+  "since": "2026-09-01T00:00:00Z",
+  "lockedBefore": null,
+  "ourWallets": [
+    "0x2c871c2b8876dc35e9e19646fda5abf1cd27735f",
+    "0x68214ff5c44f38d19ed886e8d59aadb8cab2ce22"
+  ],
+  "knownAddresses": [
+    "0x91f17a0e69d61bb078506beee7323fa10f04f880",
+    "0x3f06d2d7780771213483a1c34f9aa0fd9109edfc"
+  ],
+  "sellerWallets": [
+    "0x4466d4a84b7c49a6a094ec6eef4a0712d6dd125e",
+    "0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0",
+    "0xdadc335482ad545296fd7b28518a251ffcbeb9df",
+    "0xf22e558a00d91ee12a1f50c52186fecb8ddff493"
+  ]
+}
