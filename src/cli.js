@@ -16,6 +16,7 @@ import { loadAccount, clients, usdcBalance, payWithMemo, alreadyPaid } from "./a
 import { ACCOUNTS as A, toMicro } from "./ledger.js";
 import { appendFileSync } from "node:fs";
 import { quote, decideSweep, sweep } from "./bridge.js";
+import { render } from "./dashboard.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const cfg = JSON.parse(readFileSync(`${ROOT}config/business.json`, "utf8"));
@@ -215,6 +216,6 @@ function approveBridgeCmd() {
 }
 
 const cmd = process.argv[2];
-const run = { sync, report, propose: proposeCmd, approve: approveCmd, execute: executeCmd, bridge: bridgeCmd, "approve-bridge": approveBridgeCmd }[cmd];
+const run = { sync, report, propose: proposeCmd, approve: approveCmd, execute: executeCmd, bridge: bridgeCmd, "approve-bridge": approveBridgeCmd, dashboard: () => console.log(`wrote ${render(ROOT)}`) }[cmd];
 if (!run) { console.log("usage: tamias sync|report|propose|execute"); process.exit(2); }
 await run();
