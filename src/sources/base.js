@@ -75,3 +75,29 @@ export async function settlementFromReceipt(tx, payTo) {
   const logIndex = Number(log.logIndex);
   return { found: true, settlement: { doc: `base:${tx}:${logIndex}`, tx, logIndex, date, from: topicAddr(log.topics[1]), to: payTo.toLowerCase(), micro: Number(BigInt(log.data)), witness: "base-rpc" } };
 }
+
+/** USDC sent by `address` since `since` (outflows: sweeps, payouts, and zero-value spoofs). */
+export async function outflows(address, { since, maxPages = 20 } = {}) {
+  const base = `${BLOCKSCOUT}/addresses/${address}/token-transfers?type=ERC-20&filter=from`;
+  const out = [];
+  let next = "";
+  for (let page = 0; page < maxPages; page++) {
+    const d = await get(base + next);
+    for (const t of d.items || []) {
+      if (String(t.token?.address_hash || t.token?.address || "").toLowerCase() !== USDC_BASE) continue;
+      if (since && t.timestamp < since) return out;
+      out.push({ doc: `base:${t.transaction_hash}:${t.log_index}`, tx: t.transaction_hash, date: t.timestamp, from: t.from.hash.toLowerCase(), to: t.to.hash.toLowerCase(), micro: Number(t.total.value) });
+    }
+    if (!d.next_page_params) return out;
+    next = "&" + new URLSearchParams(Object.entries(d.next_page_params).map(([k, v]) => [k, String(v)])).toString();
+  }
+  return out;
+}
+
+/** On-chain USDC balance on Base, read from a node (the bank statement). */
+export async function balanceOf(address) {
+  const data = "0x70a08231" + address.toLowerCase().slice(2).padStart(64, "0");
+  const r = await fetch(BASE_RPC, { method: "POST", headers: { "content-type": "application/json" }, signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: USDC_BASE, data }, "latest"] }) }).then((x) => x.json());
+  return Number(BigInt(r.result));
+}

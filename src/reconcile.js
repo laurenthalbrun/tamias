@@ -9,7 +9,7 @@
 import { ACCOUNTS as A } from "./ledger.js";
 import { looksPoisoned } from "./counterparty.js";
 
-export function reconcile({ settlements, calls, ourWallets = [], knownAddresses = [] }) {
+export function reconcile({ settlements, calls, outgoing = [], ourWallets = [], knownAddresses = [] }) {
   const our = new Set(ourWallets.map((a) => a.toLowerCase()));
   const byTx = new Map();
   // Only Base settlements are witnessed here; rows settled on another network are out of scope.
@@ -62,6 +62,20 @@ export function reconcile({ settlements, calls, ourWallets = [], knownAddresses 
       continue;
     }
     entries.push({ ...base, memo: `${row.route} delivered`, postings: [dr, { account: A.INCOME_API, micro: -s.micro }], meta: { ...base.meta, route: row.route, class: "DELIVERED" } });
+  }
+
+  // Money out of the payTo wallet. To one of our wallets it is an internal move; a zero-value
+  // "transfer" to a look-alike of a wallet we pay is the other half of address poisoning (the
+  // attacker plants a fake line in our history hoping we copy it); anything else is unexplained.
+  for (const o of outgoing) {
+    if (o.micro === 0) {
+      const imitated = known.find((k) => k !== o.to && k.slice(2, 6) === o.to.slice(2, 6) && k.slice(-4) === o.to.slice(-4));
+      exceptions.push({ kind: imitated ? "ADDRESS_POISONING" : "ZERO_VALUE_TRANSFER", doc: o.doc, to: o.to, imitates: imitated ?? null, date: o.date, action: imitated ? `a spoofed line imitates ${imitated}: never copy a payee from history` : "zero-value transfer in our history" });
+      continue;
+    }
+    const internal = our.has(o.to);
+    if (!internal) exceptions.push({ kind: "UNEXPLAINED_OUTFLOW", doc: o.doc, to: o.to, micro: o.micro, date: o.date, action: "money left the treasury to an address outside our wallets and payees" });
+    entries.push({ doc: o.doc, date: o.date, memo: internal ? `transfer to our wallet ${o.to.slice(0, 10)}` : `outflow to ${o.to.slice(0, 10)}`, postings: [{ account: internal ? `Assets:Base:Wallet:${o.to.slice(0, 10)}` : "Imbalance:UnexplainedOutflow", micro: o.micro }, { account: A.TREASURY_BASE, micro: -o.micro }], meta: { tx: o.tx, to: o.to, class: internal ? "INTERNAL_OUT" : "OUTFLOW" } });
   }
 
   // The other direction: a journal row claiming a payment the chain does not show is a

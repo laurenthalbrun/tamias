@@ -5,8 +5,8 @@
 //   propose  ask the agent for treasury actions, validated by the policy (never executed here)
 //   execute  run approved actions on Arc (testnet unless --mainnet), each with an on-chain memo
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { Ledger, fromMicro } from "./ledger.js";
-import { settlements, settlementFromReceipt } from "./sources/base.js";
+import { Ledger, fromMicro, ACCOUNTS } from "./ledger.js";
+import { settlements, settlementFromReceipt, outflows, balanceOf } from "./sources/base.js";
 import { paidCalls } from "./sources/journal.js";
 import { reconcile } from "./reconcile.js";
 import { Screener } from "./counterparty.js";
@@ -15,6 +15,7 @@ import { briefing, propose as agentPropose } from "./agent.js";
 import { loadAccount, clients, usdcBalance, payWithMemo, alreadyPaid } from "./arc.js";
 import { ACCOUNTS as A, toMicro } from "./ledger.js";
 import { appendFileSync } from "node:fs";
+import { quote, decideSweep, sweep } from "./bridge.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const cfg = JSON.parse(readFileSync(`${ROOT}config/business.json`, "utf8"));
@@ -26,9 +27,10 @@ const usd = (m) => `${fromMicro(m)} USDC`;
 
 async function sync() {
   const since = arg("since", cfg.since);
-  const [chain, journal] = await Promise.all([
+  const [chain, journal, outgoing] = await Promise.all([
     settlements(cfg.payTo, { since }),
     paidCalls({ since }),
+    outflows(cfg.payTo, { since }),
   ]);
   if (!journal.available) console.warn(`journal unavailable (${journal.reason}): every settlement will be unmatched`);
   // Journal rows whose tx the indexer did not return get a second witness: the Base node.
@@ -40,12 +42,24 @@ async function sync() {
     if (w.found) { chain.items.push(w.settlement); onChain.add(row.tx_hash); recovered++; }
   }
   if (recovered) console.log(`recovered ${recovered} settlements the indexer missed, confirmed by a Base node`);
-  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [] });
+  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, outgoing, ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [] });
   const ledger = new Ledger(LEDGER, { lockedBefore: cfg.lockedBefore });
   let posted = 0, dup = 0;
   for (const e of entries.sort((a, b) => a.date.localeCompare(b.date))) {
     const r = ledger.post(e);
     r.status === "posted" ? posted++ : dup++;
+  }
+  // Bank statement: the node's balance. The first time, the gap is the balance the wallet held
+  // before the window opened (an opening entry). After that, a gap is an error made loud.
+  const onChainBase = await balanceOf(cfg.payTo);
+  const bookBase = ledger.balances()[ACCOUNTS.TREASURY_BASE] || 0;
+  if (onChainBase !== bookBase) {
+    const diff = onChainBase - bookBase;
+    const opening = !ledger.byDoc.has(`base:opening:${since}`);
+    ledger.post({ doc: opening ? `base:opening:${since}` : `base:balance:${Date.now()}`, date: opening ? since : new Date().toISOString(),
+      memo: opening ? "opening balance, derived from the on-chain balance" : "Base balance differs from the books",
+      postings: [{ account: ACCOUNTS.TREASURY_BASE, micro: diff }, { account: opening ? "Equity:Opening" : "Imbalance:BaseBalance", micro: -diff }], meta: { class: opening ? "OPENING" : "BALANCE_GAP", onChain: onChainBase, booked: bookBase } });
+    if (!opening) exceptions.push({ kind: "BALANCE_GAP", micro: diff, action: "the chain and the books disagree on the Base treasury" });
   }
   // Screen every external payer seen in this window.
   const screener = new Screener({ ourWallets: cfg.ourWallets, sellerWallets: cfg.sellerWallets || [] });
@@ -53,7 +67,7 @@ async function sync() {
   const screened = new Map();
   for (const p of payers) screened.set(p, await screener.screen(p));
   const state = { syncedAt: new Date().toISOString(), since, chainComplete: chain.complete, settlements: chain.items.length, journalRows: journal.rows.length,
-    posted, duplicates: dup, exceptions, screened: Object.fromEntries(screened), concentration: Screener.concentration(screened) };
+    posted, duplicates: dup, exceptions, baseOnChainMicro: onChainBase, screened: Object.fromEntries(screened), concentration: Screener.concentration(screened) };
   mkdirSync(`${ROOT}data`, { recursive: true });
   writeFileSync(STATE, JSON.stringify(state, null, 2));
   console.log(`read ${chain.items.length} settlements${chain.complete ? "" : " (pagination cap: floor)"} and ${journal.rows.length} journal rows since ${since}`);
@@ -172,7 +186,35 @@ async function executeCmd() {
   }
 }
 
+async function bridgeCmd() {
+  const policy = POLICY(), b = policy.bridge;
+  const ledger = new Ledger(LEDGER);
+  const treasury = loadAccount(KEY).address;
+  const baseMicro = await balanceOf(cfg.payTo);
+  const owedMicro = -(ledger.balances()[A.UNDELIVERED] || 0);
+  // Quotes need an adapter but no funds: before the owner wires the payTo key, the treasurer's
+  // own key stands in, so the decision can be shown without touching the business wallet.
+  const quoteKey = b.sourceKeyPath && existsSync(b.sourceKeyPath) ? b.sourceKeyPath : KEY;
+  const d = await decideSweep({ baseMicro, owedMicro, cfg: b, quoteFor: (micro) => quote({ net: b.net, micro, keyPath: quoteKey, recipient: treasury, ethUsd: b.ethUsd, speed: b.speed }) });
+  console.log(`Base payTo ${cfg.payTo}: ${usd(baseMicro)} on-chain, ${usd(owedMicro)} owed back to buyers`);
+  console.log(`decision: ${d.reason}`);
+  const record = { at: new Date().toISOString(), baseMicro, owedMicro, ...d, quote: undefined };
+  appendFileSync(`${ROOT}data/bridge-decisions.jsonl`, JSON.stringify(record) + "\n");
+  if (!d.sweep) return;
+  if (!b.enabled || !b.sourceKeyPath) return console.log("bridge disabled by policy: the owner enables it and sets sourceKeyPath to the payTo key");
+  if (d.amountMicro > policy.limits.humanApprovalAboveMicro && !readJsonl(APPROVALS).some((a) => a.id === `bridge:${new Date().toISOString().slice(0, 10)}`)) return console.log(`above the approval threshold: the owner runs \`tamias approve-bridge\` first`);
+  if (!flag("yes")) return console.log("dry run: add --yes to bridge");
+  const { entries, result } = await sweep({ net: b.net, micro: d.amountMicro, keyPath: b.sourceKeyPath, recipient: treasury, speed: b.speed, actionId: `bridge:${new Date().toISOString().slice(0, 10)}` });
+  for (const e of entries) ledger.post(e);
+  console.log(`bridged: state ${result.state}; ${entries.map((e) => e.meta.tx).join(" / ")}`);
+}
+
+function approveBridgeCmd() {
+  appendFileSync(APPROVALS, JSON.stringify({ id: `bridge:${new Date().toISOString().slice(0, 10)}`, approvedAt: new Date().toISOString(), by: process.env.USER }) + "\n");
+  console.log("today's bridge sweep approved");
+}
+
 const cmd = process.argv[2];
-const run = { sync, report, propose: proposeCmd, approve: approveCmd, execute: executeCmd }[cmd];
+const run = { sync, report, propose: proposeCmd, approve: approveCmd, execute: executeCmd, bridge: bridgeCmd, "approve-bridge": approveBridgeCmd }[cmd];
 if (!run) { console.log("usage: tamias sync|report|propose|execute"); process.exit(2); }
 await run();

@@ -15,19 +15,36 @@
       "id": "indexing-wallet",
       "address": "0x68214ff5c44f38d19ed886e8d59aadb8cab2ce22",
       "purpose": "Bazaar indexing wallet: pays the listing fee each time a new route is published",
-      "kinds": ["TOPUP"],
+      "kinds": [
+        "TOPUP"
+      ],
       "targetMicro": 50000
     },
     {
       "id": "reserve",
       "address": "0x0000000000000000000000000000000000000000",
       "purpose": "Cold reserve wallet held by the owner; set before use",
-      "kinds": ["SWEEP"]
+      "kinds": [
+        "SWEEP"
+      ]
     }
   ],
   "refunds": {
     "enabled": true,
-    "onlyClasses": ["EXTERNAL", "UNSCREENED"],
+    "onlyClasses": [
+      "EXTERNAL",
+      "UNSCREENED"
+    ],
     "requireLiabilityMatch": true
+  },
+  "bridge": {
+    "enabled": false,
+    "net": "mainnet",
+    "sourceKeyPath": null,
+    "minSweepMicro": 1000000,
+    "maxFeeBps": 100,
+    "keepOnBaseMicro": 200000,
+    "speed": "SLOW",
+    "ethUsd": 4000
   }
 }
