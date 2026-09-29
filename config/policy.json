@@ -40,12 +40,13 @@
   "bridge": {
     "enabled": true,
     "net": "mainnet",
-    "sourceKeyPath": "/Users/yggucci/x402-farm/.wallet.secret",
+    "sourceKeyPath": null,
     "minSweepMicro": 1000000,
     "maxFeeBps": 100,
     "keepOnBaseMicro": 200000,
     "speed": "SLOW",
     "ethUsd": 4000,
-    "forwarder": true
+    "forwarder": true,
+    "_note": "sourceKeyPath comes from BRIDGE_SOURCE_KEY_PATH in .env so no local path is published."
   }
 }

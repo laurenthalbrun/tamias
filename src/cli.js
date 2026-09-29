@@ -98,7 +98,11 @@ function report() {
   if (s.concentration.length) console.log(`concentration: ${s.concentration.map((c) => `${c.funder.slice(0, 10)}… funds ${c.payers} payers`).join("; ")}`);
 }
 
-const POLICY = () => JSON.parse(readFileSync(`${ROOT}config/policy.json`, "utf8"));
+const POLICY = () => {
+  const p = JSON.parse(readFileSync(`${ROOT}config/policy.json`, "utf8"));
+  if (process.env.BRIDGE_SOURCE_KEY_PATH) p.bridge.sourceKeyPath = process.env.BRIDGE_SOURCE_KEY_PATH;
+  return p;
+};
 const PROPOSALS = `${ROOT}data/proposals.json`;
 const APPROVALS = `${ROOT}data/approvals.jsonl`;
 const KEY = `${ROOT}.arc-treasury.secret`;
