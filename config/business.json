@@ -16,5 +16,6 @@
     "0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0",
     "0xdadc335482ad545296fd7b28518a251ffcbeb9df",
     "0xf22e558a00d91ee12a1f50c52186fecb8ddff493"
-  ]
+  ],
+  "_note": "Owner's private wallets are added at runtime from EXTRA_OUR_WALLETS (comma-separated) so they never appear in the repository."
 }

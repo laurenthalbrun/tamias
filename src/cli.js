@@ -20,6 +20,8 @@ import { render } from "./dashboard.js";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const cfg = JSON.parse(readFileSync(`${ROOT}config/business.json`, "utf8"));
+// Private wallets of the owner stay out of the repo: they come from the environment.
+cfg.ourWallets = [...cfg.ourWallets, ...String(process.env.EXTRA_OUR_WALLETS || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)];
 const LEDGER = `${ROOT}data/ledger.jsonl`;
 const STATE = `${ROOT}data/state.json`;
 const arg = (n, d = null) => { const i = process.argv.indexOf(`--${n}`); return i > 0 ? process.argv[i + 1] : d; };
