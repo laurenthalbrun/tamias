@@ -12,7 +12,7 @@ import { reconcile } from "./reconcile.js";
 import { Screener } from "./counterparty.js";
 import { evaluate } from "./policy.js";
 import { briefing, propose as agentPropose } from "./agent.js";
-import { loadAccount, clients, usdcBalance, payWithMemo, alreadyPaid } from "./arc.js";
+import { loadAccount, clients, usdcBalance, payWithMemo, paidLog, witnessFromReceipt } from "./arc.js";
 import { ACCOUNTS as A, toMicro } from "./ledger.js";
 import { appendFileSync } from "node:fs";
 import { quote, decideSweep, sweep } from "./bridge.js";
@@ -172,7 +172,22 @@ async function executeCmd() {
   const { account, c, treasuryMicro, payeeBalances } = await arcContext(ledger, policy);
   const executedIds = new Set(ledger.entries.map((e) => e.meta.actionId).filter(Boolean));
   let spent = spentToday(ledger), treasury = treasuryMicro;
-  const fromBlock = BigInt(Math.max(0, Number(await c.pub.getBlockNumber()) - 150_000));
+  const fromBlock = BigInt(Math.max(0, Number(await c.pub.getBlockNumber()) - 60_000));
+  // Recovery first: an action paid on-chain but missing from the books (a crash between paying and
+  // booking) is booked from its receipt before anything else, never paid again. Its cost was
+  // already seen by the balance witness as Imbalance:ArcBalance, so the entry clears that account.
+  for (const d of p.decisions.filter((x) => x.ok && x.action.kind !== "FLAG" && !executedIds.has(x.action.id))) {
+    const prior = await paidLog(c.pub, account.address, d.action.id, fromBlock);
+    if (!prior) continue;
+    const w = await witnessFromReceipt(c.pub, await c.pub.getTransactionReceipt({ hash: prior.transactionHash }), d.action.to, d.action.amountMicro);
+    const a = d.action, debit = a.kind === "REFUND" ? A.UNDELIVERED : a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`;
+    const gap = ledger.balances()["Imbalance:ArcBalance"] || 0, total = w.transferred + w.gasMicro;
+    ledger.post({ doc: `arc:${w.tx}:${w.logIndex}`, date: w.date, memo: `${a.kind} ${a.payee ?? a.doc} (recovered from chain): ${a.reason}`,
+      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: "Expenses:ArcGas", micro: w.gasMicro }] : []), { account: gap >= total ? "Imbalance:ArcBalance" : A.TREASURY_ARC, micro: -total }],
+      meta: { class: "ARC_PAYMENT", kind: a.kind, actionId: a.id, amountMicro: w.transferred, gasMicro: w.gasMicro, to: a.to, tx: w.tx, memoId: w.memoId, network: network(), recovered: true } });
+    executedIds.add(a.id);
+    console.log(`booked ${a.kind} ${usd(w.transferred)} + gas ${usd(w.gasMicro)} from ${c.explorer}/tx/${w.tx} (already paid on-chain)`);
+  }
   for (const d of p.decisions.filter((x) => x.ok)) {
     // Re-evaluate against the current state: the proposal file is input, not authority.
     const again = evaluate(d.action.kind === "REFUND" ? { ...d.action } : { ...d.action, payee: d.action.payee }, { policy, ledger, screened: state.screened, spentToday: spent, treasuryMicro: treasury, balances: payeeBalances, executedIds });
@@ -181,14 +196,14 @@ async function executeCmd() {
     if (a.kind === "FLAG") { appendFileSync(`${ROOT}data/flags.jsonl`, JSON.stringify({ at: new Date().toISOString(), ...a }) + "\n"); console.log(`flag   ${a.subject}`); continue; }
     if (again.needsHuman && !approved.has(a.id)) { console.log(`wait   ${a.id.slice(0, 8)} ${a.kind} ${usd(a.amountMicro)}: above the approval threshold, run \`tamias approve ${a.id.slice(0, 8)}\``); continue; }
     if (!flag("yes")) { console.log(`dry    ${a.id.slice(0, 8)} ${a.kind} ${usd(a.amountMicro)} -> ${a.to} (add --yes to send)`); continue; }
-    const paid = await alreadyPaid(c.pub, account.address, a.id, fromBlock);
-    if (paid === true) { console.log(`skip   ${a.id.slice(0, 8)}: memo already on-chain, not paying twice`); continue; }
     const note = { app: "tamias", action: a.id, kind: a.kind, doc: a.doc, payee: a.payee, reason: a.reason };
+    // Already on-chain (a crash between paying and booking): never pay again, book the receipt.
+    if (await paidLog(c.pub, account.address, a.id, fromBlock)) { console.log(`skip   ${a.id.slice(0, 8)}: memo already on-chain`); continue; }
     const w = await payWithMemo(c, { to: a.to, micro: a.amountMicro, actionId: a.id, note });
     const debit = a.kind === "REFUND" ? A.UNDELIVERED : a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`;
     ledger.post({ doc: `arc:${w.tx}:${w.logIndex}`, date: w.date, memo: `${a.kind} ${a.payee ?? a.doc}: ${a.reason}`,
-      postings: [{ account: debit, micro: w.transferred }, { account: A.TREASURY_ARC, micro: -w.transferred }],
-      meta: { class: "ARC_PAYMENT", kind: a.kind, actionId: a.id, amountMicro: w.transferred, to: a.to, tx: w.tx, memoId: w.memoId, network: network() } });
+      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: "Expenses:ArcGas", micro: w.gasMicro }] : []), { account: A.TREASURY_ARC, micro: -(w.transferred + w.gasMicro) }],
+      meta: { class: "ARC_PAYMENT", kind: a.kind, actionId: a.id, amountMicro: w.transferred, gasMicro: w.gasMicro, to: a.to, tx: w.tx, memoId: w.memoId, network: network() } });
     spent += w.transferred; treasury -= w.transferred; executedIds.add(a.id);
     console.log(`paid   ${a.kind} ${usd(w.transferred)} -> ${a.to}  ${c.explorer}/tx/${w.tx}`);
   }

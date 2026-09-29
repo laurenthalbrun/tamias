@@ -92,16 +92,24 @@ node --env-file=.env src/cli.js propose     # agent proposes, policy decides
 node --env-file=.env src/cli.js execute     # dry run; add --yes to pay on Arc
 node --env-file=.env src/cli.js bridge      # fee-aware Base to Arc sweep decision
 node src/cli.js dashboard                   # writes site/index.html
-npm test                                    # 18 tests, no network
+npm test                                    # 19 tests, no network
 ```
 
 The treasurer's Arc key is created on first use in `.arc-treasury.secret` (mode 0600) and never printed. The bridge stays disabled until the owner sets `bridge.enabled` and points `bridge.sourceKeyPath` at the payTo wallet key.
 
 ## Status
 
-Built and running: books, matching, witnesses, screening, policy, agent, Arc payment path, CCTP decision, dashboard, tests.
+Built and running: books, matching, witnesses, screening, policy, agent, Arc payments with memos, CCTP decision, dashboard, tests.
 
-Not yet done at the time of writing: the Arc treasury has not been funded, so no payment has been executed on Arc yet, and the owner has not enabled the live sweep. This section will be updated with transaction links when that happens.
+**First payment on Arc (testnet), 29 September 2026.** With the treasury funded from the Circle faucet (20 USDC), the agent proposed two moves. The policy allowed a 0.05 USDC top-up of the indexing wallet and refused a 19.5 USDC sweep to the reserve (no reserve address set by the owner, and above the per-action cap). The top-up settled through the Memo contract: [0xbad11f12…ed33](https://testnet.arcscan.app/tx/0xbad11f12303ab768a5ff6f1731c3919209e87d0cb5050a7bb6875c0df862ed33).
+
+That first payment surfaced three real problems, each now fixed and covered:
+
+- **Arc's native USDC emits `Transfer` with 18 decimals** while its ERC-20 view uses 6. The ledger refused the 5e16 amount instead of booking it, so the payment was on-chain but not in the books. The event is now normalized, and a payment found on-chain but missing from the books is booked from its receipt, never paid again.
+- **Gas on Arc is paid in USDC.** The balance witness caught the 0.002428 USDC gap on `Imbalance:ArcBalance`; gas is now booked to `Expenses:ArcGas` (rounded up to match the 6-decimal balance view; the 0.000001 rounding from that first payment stays visible).
+- **The public RPC caps log ranges and rate-limits bursts.** The first version of the double-payment check swallowed that error and read it as "not paid". It now scans in 2 000-block chunks across four public endpoints, and if it cannot prove an action was not paid, it refuses to pay.
+
+Not yet done: the live Base to Arc sweep of real revenue stays disabled until the owner enables it.
 
 ## License
 

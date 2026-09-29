@@ -71,3 +71,10 @@ test("screening: seller-funded, internal loop and one operator behind many payer
   const m = new Map([["0xc", await s.screen("0xc")], ["0xd", await s.screen("0xd")]]);
   assert.deepEqual(Screener.concentration(m), [{ funder: OP, payers: 2 }]);
 });
+
+import { toMicroFromEvent } from "../src/arc.js";
+test("Arc Transfer events in 18 decimals are normalized, anything else is refused", () => {
+  assert.equal(toMicroFromEvent(50000000000000000n, 50000), 50000);
+  assert.equal(toMicroFromEvent(50000n, 50000), 50000);
+  assert.throws(() => toMicroFromEvent(49999999999999999n, 50000), /matches neither/);
+});
