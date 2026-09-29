@@ -4,7 +4,7 @@
 const BLOCKSCOUT = process.env.BLOCKSCOUT_BASE || "https://base.blockscout.com/api/v2";
 export const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
-async function get(url, tries = 4) {
+async function get(url, tries = 6) {
   for (let i = 0; ; i++) {
     const r = await fetch(url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(20_000) }).catch((e) => ({ ok: false, status: String(e.message) }));
     if (r.ok) return r.json();

@@ -31,8 +31,12 @@ async function sync() {
   const [chain, journal, outgoing] = await Promise.all([
     settlements(cfg.payTo, { since }),
     paidCalls({ since }),
-    outflows(cfg.payTo, { since }),
+    outflows(cfg.payTo, { since }).catch((e) => ({ failed: String(e.message) })),
   ]);
+  // A source that fails is reported, never guessed: without the outflows the balance witness
+  // would book a false gap, so it is skipped for this run.
+  const outOk = Array.isArray(outgoing);
+  if (!outOk) console.warn(`outflows unavailable (${outgoing.failed}): balance check skipped this run`);
   if (!journal.available) console.warn(`journal unavailable (${journal.reason}): every settlement will be unmatched`);
   // Journal rows whose tx the indexer did not return get a second witness: the Base node.
   const onChain = new Set(chain.items.map((s) => s.tx));
@@ -43,7 +47,7 @@ async function sync() {
     if (w.found) { chain.items.push(w.settlement); onChain.add(row.tx_hash); recovered++; }
   }
   if (recovered) console.log(`recovered ${recovered} settlements the indexer missed, confirmed by a Base node`);
-  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, outgoing, ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [] });
+  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, outgoing: outOk ? outgoing : [], ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [] });
   const ledger = new Ledger(LEDGER, { lockedBefore: cfg.lockedBefore });
   let posted = 0, dup = 0;
   for (const e of entries.sort((a, b) => a.date.localeCompare(b.date))) {
@@ -54,7 +58,8 @@ async function sync() {
   // before the window opened (an opening entry). After that, a gap is an error made loud.
   const onChainBase = await balanceOf(cfg.payTo);
   const bookBase = ledger.balances()[ACCOUNTS.TREASURY_BASE] || 0;
-  if (onChainBase !== bookBase) {
+  if (!outOk) exceptions.push({ kind: "SOURCE_UNAVAILABLE", source: "base outflows", action: "rerun sync; the balance was not checked" });
+  else if (onChainBase !== bookBase) {
     const diff = onChainBase - bookBase;
     const opening = !ledger.byDoc.has(`base:opening:${since}`);
     ledger.post({ doc: opening ? `base:opening:${since}` : `base:balance:${Date.now()}`, date: opening ? since : new Date().toISOString(),
