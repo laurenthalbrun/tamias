@@ -62,7 +62,7 @@ export function render(root) {
 
   const recent = [...ledger.entries].sort((x, y) => y.date.localeCompare(x.date)).slice(0, 12).map((e) => {
     const main = e.postings.find((p) => p.micro > 0);
-    const tx = e.meta.tx && /^0x[0-9a-f]{64}$/i.test(e.meta.tx) ? `<a href="${e.meta.network?.startsWith("arc") ? "https://testnet.arcscan.app/tx/" : BASESCAN}${e.meta.tx}">${short(e.meta.tx)}</a>` : "";
+    const tx = e.meta.tx && /^0x[0-9a-f]{64}$/i.test(e.meta.tx) ? `<a href="${e.meta.network === "arc-mainnet" ? "https://explorer.arc.io/tx/" : e.meta.network === "arc-testnet" ? "https://testnet.arcscan.app/tx/" : e.meta.net === "mainnet" && e.doc.startsWith("cctp:mint") ? "https://explorer.arc.io/tx/" : BASESCAN}${e.meta.tx}">${short(e.meta.tx)}</a>` : "";
     return `<tr><td>${esc(e.date.slice(0, 16).replace("T", " "))}</td><td>${esc(e.memo)}</td><td>${esc(main?.account)}</td><td class="num">${usd(main?.micro || 0)}</td><td>${tx}</td><td class="mono">${esc(e.id.slice(0, 8))}</td></tr>`;
   }).join("");
 

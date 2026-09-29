@@ -10,7 +10,8 @@
 import { createHash } from "node:crypto";
 import { ACCOUNTS as A } from "./ledger.js";
 
-export const actionId = (a) => createHash("sha256").update(JSON.stringify([a.kind, a.doc ?? null, a.payee ?? null, a.amountMicro ?? null, a.subject ?? null, a.day ?? null])).digest("hex").slice(0, 32);
+// The network is part of the identity: a top-up done on testnet must never block the real one.
+export const actionId = (a) => createHash("sha256").update(JSON.stringify([a.kind, a.doc ?? null, a.payee ?? null, a.amountMicro ?? null, a.subject ?? null, a.day ?? null, a.net ?? null])).digest("hex").slice(0, 32);
 
 /**
  * @param action   proposal from the agent
@@ -60,7 +61,7 @@ export function evaluate(action, ctx) {
   if (spentToday + amount > L.dailyMaxMicro) return refuse(`daily cap ${L.dailyMaxMicro} would be exceeded (spent ${spentToday})`);
   if (amount > treasuryMicro - (action.kind === "SWEEP" ? 0 : policy.floats.arcOperatingMinMicro) && action.kind !== "SWEEP") return refuse(`treasury ${treasuryMicro} cannot cover ${amount} and keep its minimum float`);
   const day = new Date().toISOString().slice(0, 10);
-  const normalized = { kind: action.kind, doc: action.doc ?? null, payee: payee?.id ?? null, to, amountMicro: amount, reason: String(action.reason || "").slice(0, 300), day: action.kind === "REFUND" ? null : day };
+  const normalized = { kind: action.kind, doc: action.doc ?? null, payee: payee?.id ?? null, to, amountMicro: amount, reason: String(action.reason || "").slice(0, 300), day: action.kind === "REFUND" ? null : day, net: ctx.network ?? null };
   normalized.id = actionId(normalized);
   if (executedIds.has(normalized.id)) return refuse("already executed (idempotency)");
   return { ok: true, action: normalized, needsHuman: amount > L.humanApprovalAboveMicro, reason: amount > L.humanApprovalAboveMicro ? "within policy, above the human-approval threshold" : "within policy" };

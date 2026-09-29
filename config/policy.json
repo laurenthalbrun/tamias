@@ -38,13 +38,14 @@
     "requireLiabilityMatch": true
   },
   "bridge": {
-    "enabled": false,
+    "enabled": true,
     "net": "mainnet",
-    "sourceKeyPath": null,
+    "sourceKeyPath": "/Users/yggucci/x402-farm/.wallet.secret",
     "minSweepMicro": 1000000,
     "maxFeeBps": 100,
     "keepOnBaseMicro": 200000,
     "speed": "SLOW",
-    "ethUsd": 4000
+    "ethUsd": 4000,
+    "forwarder": true
   }
 }

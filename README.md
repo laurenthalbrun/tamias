@@ -92,7 +92,7 @@ node --env-file=.env src/cli.js propose     # agent proposes, policy decides
 node --env-file=.env src/cli.js execute     # dry run; add --yes to pay on Arc
 node --env-file=.env src/cli.js bridge      # fee-aware Base to Arc sweep decision
 node src/cli.js dashboard                   # writes site/index.html
-npm test                                    # 19 tests, no network
+npm test                                    # 20 tests, no network
 ```
 
 The treasurer's Arc key is created on first use in `.arc-treasury.secret` (mode 0600) and never printed. The bridge stays disabled until the owner sets `bridge.enabled` and points `bridge.sourceKeyPath` at the payTo wallet key.
@@ -109,7 +109,9 @@ That first payment surfaced three real problems, each now fixed and covered:
 - **Gas on Arc is paid in USDC.** The balance witness caught the 0.002428 USDC gap on `Imbalance:ArcBalance`; gas is now booked to `Expenses:ArcGas` (rounded up to match the 6-decimal balance view; the 0.000001 rounding from that first payment stays visible).
 - **The public RPC caps log ranges and rate-limits bursts.** The first version of the double-payment check swallowed that error and read it as "not paid". It now scans in 2 000-block chunks across four public endpoints, and if it cannot prove an action was not paid, it refuses to pay.
 
-Not yet done: the live Base to Arc sweep of real revenue stays disabled until the owner enables it.
+**Live on Arc mainnet, 29 September 2026.** With the owner's approval, the treasurer swept the business's real x402 revenue from Base to Arc through Circle CCTP with the forwarder: 3.344833 USDC burned on Base ([0x170b2ef6…f5a3](https://basescan.org/tx/0x170b2ef61323a34fb7380efe0b32ed9b2ec9cd29b5c8f31b30f60ebb0155f5a3)), 3.327436 USDC minted on Arc after a 0.017397 relay fee, 0.20 USDC kept on Base for refunds. The decision priced Base gas at the live ETH spot (85 bps, under the 100 bps ceiling); an earlier constant ETH price had overstated the cost and blocked it. Its first mainnet payment followed: a 0.05 USDC top-up through the Memo contract ([0xd0589855…033d](https://explorer.arc.io/tx/0xd05898555dfcbb56a712e2e306eed36b7a3f8013df45f7d4eec6f8cd453a033d)). The same plan's 2.83 USDC sweep to a reserve was refused: the owner has not set a reserve address. Books and chain agree on the Arc treasury: 3.275493 USDC.
+
+Testnet and mainnet never share an account: testnet activity lives under `ArcTestnet` accounts and the faucet under `Equity:TestnetFaucet`, and an action's identity includes its network, so a testnet payment can never block or stand in for a real one. Both were bugs found on this first live run and fixed with a reclassification entry kept in the ledger.
 
 ## License
 

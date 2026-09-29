@@ -105,6 +105,8 @@ const KEY = `${ROOT}.arc-treasury.secret`;
 const network = () => (flag("mainnet") ? "arc-mainnet" : POLICY().network);
 const readJsonl = (p) => (existsSync(p) ? readFileSync(p, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)) : []);
 const MOVES = ["REFUND", "TOPUP", "SWEEP"];
+// Real money and test money never share an account: on testnet every Arc account is renamed.
+const acct = (name) => (network() === "arc-mainnet" ? name : name.replace(/^(Assets|Expenses|Imbalance):Arc/, "$1:ArcTestnet").replace("Equity:OwnerFunding", "Equity:TestnetFaucet"));
 
 function spentToday(ledger) {
   const day = new Date().toISOString().slice(0, 10);
@@ -116,12 +118,12 @@ async function arcContext(ledger, policy) {
   const account = loadAccount(KEY);
   const c = clients(network(), account);
   const onChain = await usdcBalance(c.pub, account.address);
-  const booked = ledger.balances()[A.TREASURY_ARC] || 0;
+  const booked = ledger.balances()[acct(A.TREASURY_ARC)] || 0;
   if (onChain !== booked) {
     // Loud repair: an unexplained difference is posted to a named account, never hidden.
     const diff = onChain - booked;
     ledger.post({ doc: `arc:balance:${network()}:${Date.now()}`, date: new Date().toISOString(), memo: diff > 0 ? "deposit to the Arc treasury seen on-chain" : "Arc treasury lower than the books",
-      postings: [{ account: A.TREASURY_ARC, micro: diff }, { account: diff > 0 ? "Equity:OwnerFunding" : "Imbalance:ArcBalance", micro: -diff }], meta: { class: "ARC_BALANCE", network: network() } });
+      postings: [{ account: acct(A.TREASURY_ARC), micro: diff }, { account: acct(diff > 0 ? "Equity:OwnerFunding" : "Imbalance:ArcBalance"), micro: -diff }], meta: { class: "ARC_BALANCE", network: network() } });
   }
   const payeeBalances = {};
   for (const p of policy.payees) if (!/^0x0{40}$/.test(p.address)) payeeBalances[p.address.toLowerCase()] = await usdcBalance(c.pub, p.address);
@@ -138,7 +140,7 @@ async function proposeCmd() {
   const executedIds = new Set(ledger.entries.map((e) => e.meta.actionId).filter(Boolean));
   let spent = spentToday(ledger);
   const decisions = plan.actions.map((a) => {
-    const d = evaluate(a, { policy, ledger, screened: state.screened, spentToday: spent, treasuryMicro, balances: payeeBalances, executedIds });
+    const d = evaluate(a, { network: network(), policy, ledger, screened: state.screened, spentToday: spent, treasuryMicro, balances: payeeBalances, executedIds });
     if (d.ok) spent += d.action.amountMicro;
     return { proposed: a, ...d };
   });
@@ -180,17 +182,17 @@ async function executeCmd() {
     const prior = await paidLog(c.pub, account.address, d.action.id, fromBlock);
     if (!prior) continue;
     const w = await witnessFromReceipt(c.pub, await c.pub.getTransactionReceipt({ hash: prior.transactionHash }), d.action.to, d.action.amountMicro);
-    const a = d.action, debit = a.kind === "REFUND" ? A.UNDELIVERED : a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`;
-    const gap = ledger.balances()["Imbalance:ArcBalance"] || 0, total = w.transferred + w.gasMicro;
+    const a = d.action, debit = a.kind === "REFUND" ? A.UNDELIVERED : acct(a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`);
+    const gap = ledger.balances()[acct("Imbalance:ArcBalance")] || 0, total = w.transferred + w.gasMicro;
     ledger.post({ doc: `arc:${w.tx}:${w.logIndex}`, date: w.date, memo: `${a.kind} ${a.payee ?? a.doc} (recovered from chain): ${a.reason}`,
-      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: "Expenses:ArcGas", micro: w.gasMicro }] : []), { account: gap >= total ? "Imbalance:ArcBalance" : A.TREASURY_ARC, micro: -total }],
+      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: acct("Expenses:ArcGas"), micro: w.gasMicro }] : []), { account: acct(gap >= total ? "Imbalance:ArcBalance" : A.TREASURY_ARC), micro: -total }],
       meta: { class: "ARC_PAYMENT", kind: a.kind, actionId: a.id, amountMicro: w.transferred, gasMicro: w.gasMicro, to: a.to, tx: w.tx, memoId: w.memoId, network: network(), recovered: true } });
     executedIds.add(a.id);
     console.log(`booked ${a.kind} ${usd(w.transferred)} + gas ${usd(w.gasMicro)} from ${c.explorer}/tx/${w.tx} (already paid on-chain)`);
   }
   for (const d of p.decisions.filter((x) => x.ok)) {
     // Re-evaluate against the current state: the proposal file is input, not authority.
-    const again = evaluate(d.action.kind === "REFUND" ? { ...d.action } : { ...d.action, payee: d.action.payee }, { policy, ledger, screened: state.screened, spentToday: spent, treasuryMicro: treasury, balances: payeeBalances, executedIds });
+    const again = evaluate(d.action.kind === "REFUND" ? { ...d.action } : { ...d.action, payee: d.action.payee }, { network: network(), policy, ledger, screened: state.screened, spentToday: spent, treasuryMicro: treasury, balances: payeeBalances, executedIds });
     if (!again.ok) { console.log(`skip ${d.action.id.slice(0, 8)}: ${again.reason}`); continue; }
     const a = again.action;
     if (a.kind === "FLAG") { appendFileSync(`${ROOT}data/flags.jsonl`, JSON.stringify({ at: new Date().toISOString(), ...a }) + "\n"); console.log(`flag   ${a.subject}`); continue; }
@@ -200,9 +202,9 @@ async function executeCmd() {
     // Already on-chain (a crash between paying and booking): never pay again, book the receipt.
     if (await paidLog(c.pub, account.address, a.id, fromBlock)) { console.log(`skip   ${a.id.slice(0, 8)}: memo already on-chain`); continue; }
     const w = await payWithMemo(c, { to: a.to, micro: a.amountMicro, actionId: a.id, note });
-    const debit = a.kind === "REFUND" ? A.UNDELIVERED : a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`;
+    const debit = a.kind === "REFUND" ? A.UNDELIVERED : acct(a.kind === "SWEEP" ? A.RESERVE_ARC : `Assets:Arc:Payee:${a.payee}`);
     ledger.post({ doc: `arc:${w.tx}:${w.logIndex}`, date: w.date, memo: `${a.kind} ${a.payee ?? a.doc}: ${a.reason}`,
-      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: "Expenses:ArcGas", micro: w.gasMicro }] : []), { account: A.TREASURY_ARC, micro: -(w.transferred + w.gasMicro) }],
+      postings: [{ account: debit, micro: w.transferred }, ...(w.gasMicro ? [{ account: acct("Expenses:ArcGas"), micro: w.gasMicro }] : []), { account: acct(A.TREASURY_ARC), micro: -(w.transferred + w.gasMicro) }],
       meta: { class: "ARC_PAYMENT", kind: a.kind, actionId: a.id, amountMicro: w.transferred, gasMicro: w.gasMicro, to: a.to, tx: w.tx, memoId: w.memoId, network: network() } });
     spent += w.transferred; treasury -= w.transferred; executedIds.add(a.id);
     console.log(`paid   ${a.kind} ${usd(w.transferred)} -> ${a.to}  ${c.explorer}/tx/${w.tx}`);
@@ -218,16 +220,21 @@ async function bridgeCmd() {
   // Quotes need an adapter but no funds: before the owner wires the payTo key, the treasurer's
   // own key stands in, so the decision can be shown without touching the business wallet.
   const quoteKey = b.sourceKeyPath && existsSync(b.sourceKeyPath) ? b.sourceKeyPath : KEY;
-  const d = await decideSweep({ baseMicro, owedMicro, cfg: b, quoteFor: (micro) => quote({ net: b.net, micro, keyPath: quoteKey, recipient: treasury, ethUsd: b.ethUsd, speed: b.speed }) });
+  // Gas on Base is paid in ETH: price it at the live spot, not at a constant. A fixed 4 000 $
+  // overstated the cost of the first sweep by 40 % and flipped the decision. Fallback: policy.
+  const spot = await fetch("https://api.coinbase.com/v2/prices/ETH-USD/spot", { signal: AbortSignal.timeout(8000) }).then((r) => r.json()).then((j) => Number(j.data.amount)).catch(() => null);
+  const ethUsd = Number.isFinite(spot) && spot > 0 ? spot : b.ethUsd;
+  const d = await decideSweep({ baseMicro, owedMicro, cfg: b, quoteFor: (micro) => quote({ net: b.net, micro, keyPath: quoteKey, recipient: treasury, ethUsd, speed: b.speed, forwarder: !!b.forwarder }) });
+  console.log(`ETH priced at ${ethUsd} USD (${spot ? "Coinbase spot" : "policy fallback"})`);
   console.log(`Base payTo ${cfg.payTo}: ${usd(baseMicro)} on-chain, ${usd(owedMicro)} owed back to buyers`);
   console.log(`decision: ${d.reason}`);
-  const record = { at: new Date().toISOString(), baseMicro, owedMicro, ...d, quote: undefined };
+  const record = { at: new Date().toISOString(), baseMicro, owedMicro, ethUsd, ...d, quote: undefined };
   appendFileSync(`${ROOT}data/bridge-decisions.jsonl`, JSON.stringify(record) + "\n");
   if (!d.sweep) return;
   if (!b.enabled || !b.sourceKeyPath) return console.log("bridge disabled by policy: the owner enables it and sets sourceKeyPath to the payTo key");
   if (d.amountMicro > policy.limits.humanApprovalAboveMicro && !readJsonl(APPROVALS).some((a) => a.id === `bridge:${new Date().toISOString().slice(0, 10)}`)) return console.log(`above the approval threshold: the owner runs \`tamias approve-bridge\` first`);
   if (!flag("yes")) return console.log("dry run: add --yes to bridge");
-  const { entries, result } = await sweep({ net: b.net, micro: d.amountMicro, keyPath: b.sourceKeyPath, recipient: treasury, speed: b.speed, actionId: `bridge:${new Date().toISOString().slice(0, 10)}` });
+  const { entries, result } = await sweep({ net: b.net, micro: d.amountMicro, keyPath: b.sourceKeyPath, recipient: treasury, speed: b.speed, forwarder: !!b.forwarder, relayFeeMicro: d.relayFeeMicro || 0, actionId: `bridge:${new Date().toISOString().slice(0, 10)}` });
   for (const e of entries) ledger.post(e);
   console.log(`bridged: state ${result.state}; ${entries.map((e) => e.meta.tx).join(" / ")}`);
 }

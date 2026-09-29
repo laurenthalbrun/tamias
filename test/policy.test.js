@@ -57,3 +57,8 @@ test("the rule-based planner refunds failures and flags concentration", () => {
   const plan = planByRules({ undelivered: [{ doc: "d", owedMicro: 10000, route: "/v1/x" }], payees: [], payers: { concentration: [{ funder: "0xop", payers: 7 }] }, exceptions: {} });
   assert.deepEqual(plan.actions.map((a) => a.kind), ["REFUND", "FLAG"]);
 });
+test("the same action on testnet and mainnet has two identities", () => {
+  const t = evaluate({ kind: "TOPUP", payee: "ops", amountMicro: 50000 }, ctx({ network: "arc-testnet" }));
+  const m = evaluate({ kind: "TOPUP", payee: "ops", amountMicro: 50000 }, ctx({ network: "arc-mainnet", executedIds: new Set([t.action.id]) }));
+  assert.equal(m.ok, true); assert.notEqual(m.action.id, t.action.id);
+});
