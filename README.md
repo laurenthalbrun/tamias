@@ -4,7 +4,7 @@
 
 Tamias (ταμίας, Greek for treasurer) runs the money side of a real, live API business: [api.x-402.online](https://api.x-402.online), where AI agents buy data and tools per call in USDC over the x402 protocol on Base. It keeps double-entry books from the chain and checks who is really paying. Money moves on Arc only inside a policy a human wrote.
 
-**Live dashboard:** [tamias-treasury.vercel.app](https://tamias-treasury.vercel.app), regenerated from the real books.
+**Live dashboard:** [tamias-treasury.vercel.app](https://tamias-treasury.vercel.app), regenerated from the real books. **Demo video (2:52):** [tamias-treasury.vercel.app/demo.mp4](https://tamias-treasury.vercel.app/demo.mp4).
 
 Built for the [Tameion Agents Hackathon](https://tameion.thecanteenapp.com/) (Canteen × Circle). Everything below runs against production data, not a mock.
 
