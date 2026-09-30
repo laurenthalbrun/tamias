@@ -62,6 +62,15 @@ test("dust from a look-alike address is flagged as poisoning", () => {
   assert.equal(looksPoisoned(fake, 5000, [PAYER]), null);
 });
 
+test("a CCTP burn already booked by the bridge is not booked again as an unknown outflow", () => {
+  const burn = { doc: "base:0xburn:1", tx: "0xburn", to: "0x" + "b".repeat(40), micro: 3344833, date: "2026-09-29T22:58:41Z" };
+  const seen = reconcile({ settlements: [], calls: [], outgoing: [burn] });
+  assert.ok(seen.exceptions.some((x) => x.kind === "UNEXPLAINED_OUTFLOW"));
+  const { entries, exceptions } = reconcile({ settlements: [], calls: [], outgoing: [burn], bookedTx: new Set(["0xburn"]) });
+  assert.equal(entries.length, 0);
+  assert.equal(exceptions.length, 0);
+});
+
 test("screening: seller-funded, internal loop and one operator behind many payers", async () => {
   const SELLER = "0x4466d4a84b7c49a6a094ec6eef4a0712d6dd125e", OP = "0x3f06d2d7780771213483a1c34f9aa0fd9109edfc";
   const funding = { "0xa": [{ from: SELLER, micro: 1e6 }], "0xb": [{ from: OUR, micro: 1e6 }], "0xc": [{ from: OP, micro: 250000 }], "0xd": [{ from: OP, micro: 250000 }] };

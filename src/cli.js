@@ -49,8 +49,9 @@ async function sync() {
     if (w.found) { chain.items.push(w.settlement); onChain.add(row.tx_hash); recovered++; }
   }
   if (recovered) console.log(`recovered ${recovered} settlements the indexer missed, confirmed by a Base node`);
-  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, outgoing: outOk ? outgoing : [], ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [] });
   const ledger = new Ledger(LEDGER, { lockedBefore: cfg.lockedBefore });
+  const bookedTx = new Set([...ledger.byDoc.values()].filter((e) => e.meta?.class === "BRIDGE_OUT").map((e) => e.meta.tx));
+  const { entries, exceptions } = reconcile({ settlements: chain.items, calls: journal.rows, outgoing: outOk ? outgoing : [], ourWallets: cfg.ourWallets, knownAddresses: cfg.knownAddresses || [], bookedTx });
   let posted = 0, dup = 0;
   for (const e of entries.sort((a, b) => a.date.localeCompare(b.date))) {
     const r = ledger.post(e);

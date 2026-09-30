@@ -9,7 +9,7 @@
 import { ACCOUNTS as A } from "./ledger.js";
 import { looksPoisoned } from "./counterparty.js";
 
-export function reconcile({ settlements, calls, outgoing = [], ourWallets = [], knownAddresses = [] }) {
+export function reconcile({ settlements, calls, outgoing = [], ourWallets = [], knownAddresses = [], bookedTx = new Set() }) {
   const our = new Set(ourWallets.map((a) => a.toLowerCase()));
   const byTx = new Map();
   // Only Base settlements are witnessed here; rows settled on another network are out of scope.
@@ -73,6 +73,9 @@ export function reconcile({ settlements, calls, outgoing = [], ourWallets = [], 
       exceptions.push({ kind: imitated ? "ADDRESS_POISONING" : "ZERO_VALUE_TRANSFER", doc: o.doc, to: o.to, imitates: imitated ?? null, date: o.date, action: imitated ? `a spoofed line imitates ${imitated}: never copy a payee from history` : "zero-value transfer in our history" });
       continue;
     }
+    // A CCTP burn is already in the books from the bridge (Base treasury -> in transit); the
+    // same USDC leaving the wallet must not be booked a second time as an unknown outflow.
+    if (bookedTx.has(o.tx)) continue;
     const internal = our.has(o.to);
     if (!internal) exceptions.push({ kind: "UNEXPLAINED_OUTFLOW", doc: o.doc, to: o.to, micro: o.micro, date: o.date, action: "money left the treasury to an address outside our wallets and payees" });
     entries.push({ doc: o.doc, date: o.date, memo: internal ? `transfer to our wallet ${o.to.slice(0, 10)}` : `outflow to ${o.to.slice(0, 10)}`, postings: [{ account: internal ? `Assets:Base:Wallet:${o.to.slice(0, 10)}` : "Imbalance:UnexplainedOutflow", micro: o.micro }, { account: A.TREASURY_BASE, micro: -o.micro }], meta: { tx: o.tx, to: o.to, class: internal ? "INTERNAL_OUT" : "OUTFLOW" } });
