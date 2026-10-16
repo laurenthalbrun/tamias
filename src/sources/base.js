@@ -1,7 +1,9 @@
 // Source 1: the chain. Every USDC transfer received by the business's x402 payTo wallet on
-// Base, read from Blockscout. This is the external witness: it does not depend on our own
+// Base, read from Coinbase's CDP index when a key is configured, Blockscout otherwise
+// (Blockscout answers 403 bot challenges since 16 October 2026). This is the external witness: it does not depend on our own
 // logging, so it catches money our journal never saw.
 const BLOCKSCOUT = process.env.BLOCKSCOUT_BASE || "https://base.blockscout.com/api/v2";
+import { cdpAvailable, usdcTransfers } from "./cdp.js";
 export const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 
 async function get(url, tries = 6) {
@@ -15,6 +17,10 @@ async function get(url, tries = 6) {
 
 /** USDC settlements received by `payTo` since `since` (ISO), newest first, paginated to the end. */
 export async function settlements(payTo, { since, maxPages = 60 } = {}) {
+  if (cdpAvailable()) {
+    const items = (await usdcTransfers({ to: payTo, since })).map((t) => ({ doc: `base:${t.tx}:${t.logIndex}`, ...t, witness: "cdp" }));
+    return { items, complete: true };
+  }
   const base = `${BLOCKSCOUT}/addresses/${payTo}/token-transfers?type=ERC-20&filter=to`;
   const out = [];
   let next = "";
@@ -39,6 +45,7 @@ export async function settlements(payTo, { since, maxPages = 60 } = {}) {
 
 /** Incoming USDC transfers of any address (used to find who funded a buyer). */
 export async function incomingUsdc(address, { pages = 2 } = {}) {
+  if (cdpAvailable()) return (await usdcTransfers({ to: address, limit: pages * 50 })).map((t) => ({ from: t.from, micro: t.micro, date: t.date, tx: t.tx }));
   const base = `${BLOCKSCOUT}/addresses/${address}/token-transfers?type=ERC-20&filter=to`;
   const out = [];
   let next = "";
@@ -78,6 +85,7 @@ export async function settlementFromReceipt(tx, payTo) {
 
 /** USDC sent by `address` since `since` (outflows: sweeps, payouts, and zero-value spoofs). */
 export async function outflows(address, { since, maxPages = 20 } = {}) {
+  if (cdpAvailable()) return (await usdcTransfers({ from: address, since })).map((t) => ({ doc: `base:${t.tx}:${t.logIndex}`, tx: t.tx, date: t.date, from: t.from, to: t.to, micro: t.micro }));
   const base = `${BLOCKSCOUT}/addresses/${address}/token-transfers?type=ERC-20&filter=from`;
   const out = [];
   let next = "";
